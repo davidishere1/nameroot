@@ -41,7 +41,7 @@ export default function App() {
     <div className="min-h-screen bg-[radial-gradient(900px_500px_at_15%_-10%,#d9ccff_0%,transparent_60%),radial-gradient(700px_500px_at_100%_0%,#c3e9ff_0%,transparent_55%)]">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-5 py-5">
         <div className="flex items-center gap-2.5">
-          <img src="/favicon.svg" className="h-9 w-9" alt="" />
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} className="h-9 w-9" alt="" />
           <span className="text-xl font-bold text-violet-deep">nameroot</span>
         </div>
         {wallet.address ? (
