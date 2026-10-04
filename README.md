@@ -70,6 +70,12 @@ stellar contract invoke --id <NAMEROOT> --source alice --network testnet -- \
 stellar contract invoke --id <NAMEROOT> --network testnet -- resolve --name alice
 ```
 
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Resolving names](docs/resolving-names.md)
+- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+
 ## Glossary (new to Stellar?)
 
 - **Name registry**: a contract mapping names to addresses, like DNS for
