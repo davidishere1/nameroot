@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-haze: #f5f3ff;
+  --color-violet: #6d4aff;
+  --color-violet-deep: #2e1a87;
+  --color-lilac: #c8b8ff;
+  --color-ink: #1b1440;
+  --color-soft: #6e6a8a;
+  --color-ok: #12a179;
+  --color-bad: #d6455d;
+  --color-wait: #c98a0c;
+  --font-sans: "Outfit", system-ui, sans-serif;
+}
+body { background: var(--color-haze); color: var(--color-ink); font-family: var(--font-sans); }
+
+/* In the components layer so Tailwind utilities (w-*, etc.) can override these. */
+@layer components {
+  .glass { background: rgb(255 255 255 / .82); backdrop-filter: blur(10px); border: 1px solid #e6e0ff; border-radius: 24px; box-shadow: 0 20px 50px -30px rgb(46 26 135 / .45); }
+  .fld { width: 100%; border: 1.5px solid #e2dcff; border-radius: 14px; padding: .7rem .9rem; background: #fff; }
+  .fld:focus { outline: none; border-color: var(--color-violet); box-shadow: 0 0 0 4px rgb(109 74 255 / .15); }
+  .go { border-radius: 14px; padding: .7rem 1.2rem; font-weight: 600; }
+  .go:disabled { opacity: .5; cursor: not-allowed; }
+  .go-v { background: var(--color-violet); color: #fff; }
+  .go-d { background: var(--color-violet-deep); color: #fff; }
+  .go-o { border: 1.5px solid #e2dcff; background: #fff; color: var(--color-violet-deep); }
+}
