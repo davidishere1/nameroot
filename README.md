@@ -70,6 +70,28 @@ stellar contract invoke --id <NAMEROOT> --source alice --network testnet -- \
 stellar contract invoke --id <NAMEROOT> --network testnet -- resolve --name alice
 ```
 
+## Web app
+
+![Nameroot web app](docs/assets/web-app.png)
+
+A registrar-style app at `web/`:
+
+- **Search** any name: see whether it's available, registered or in its 30-day grace period, where it resolves, who owns it and when it expires.
+- **Register** for 1–10 years at the on-chain price, pointing at your wallet or any other address.
+- **Manage** as owner: renew, point the name at a new target, transfer ownership, or make it your primary name (the header then shows `you.xlm`).
+- **Reverse lookup**: which name an address goes by, answered only while the name still points back.
+
+```bash
+cd web
+npm install
+npm run dev        # http://localhost:5173
+```
+
+It talks to the contract deployed on **Stellar testnet** and signs with
+[Freighter](https://www.freighter.app) (switch it to Testnet). Point it at
+another deployment with `VITE_CONTRACT_ID` (see `web/.env.example`).
+`netlify.toml` at the repo root deploys it as-is.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
