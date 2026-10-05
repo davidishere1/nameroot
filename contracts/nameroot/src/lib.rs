@@ -44,17 +44,29 @@ pub struct Settings {
     pub treasury: Address,
 }
 
+/// Price multipliers for short names (applied to price_per_year).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LengthPricing {
+    /// Multiplier for 3-character names.
+    pub three: u32,
+    /// Multiplier for 4-character names.
+    pub four: u32,
+}
+
 #[contracttype]
 pub enum DataKey {
     Settings,
     Name(String),
     Primary(Address),
+    LengthPricing,
 }
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    /// Kept for stable error codes; the registry is configured by its constructor.
     AlreadyInitialized = 1,
     NotInitialized = 2,
     InvalidName = 3,
@@ -74,6 +86,32 @@ pub struct Registered {
     pub name: String,
     pub owner: Address,
     pub expires_at: u64,
+}
+
+#[contractevent(topics = ["name", "price"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PriceChanged {
+    pub old: i128,
+    pub new: i128,
+}
+
+#[contractevent(topics = ["name", "admin"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminChanged {
+    pub from: Address,
+    pub to: Address,
+}
+
+#[contractevent(topics = ["name", "treasury"], data_format = "single-value")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryChanged {
+    pub treasury: Address,
+}
+
+#[contractevent(topics = ["name", "unprimary"], data_format = "single-value")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrimaryCleared {
+    pub address: Address,
 }
 
 #[contractevent(topics = ["name", "renewed"])]
@@ -102,16 +140,16 @@ pub struct Nameroot;
 
 #[contractimpl]
 impl Nameroot {
-    pub fn init(
+    /// Configure the registry at deployment. Being a constructor, it runs in
+    /// the same transaction as the deploy, so nobody else can claim the
+    /// admin and treasury of a freshly deployed registry.
+    pub fn __constructor(
         env: Env,
         admin: Address,
         fee_token: Address,
         price_per_year: i128,
         treasury: Address,
     ) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Settings) {
-            return Err(Error::AlreadyInitialized);
-        }
         if price_per_year < 0 {
             return Err(Error::InvalidPrice);
         }
@@ -144,7 +182,7 @@ impl Nameroot {
                 return Err(Error::NameTaken);
             }
         }
-        charge(&env, &owner, years)?;
+        charge(&env, &owner, &name, years)?;
 
         let expires_at = now + YEAR * years as u64;
         let record = Record {
@@ -172,7 +210,7 @@ impl Nameroot {
         if now >= record.expires_at + GRACE_PERIOD {
             return Err(Error::NameExpired);
         }
-        charge(&env, &payer, years)?;
+        charge(&env, &payer, &name, years)?;
         let base = if record.expires_at > now {
             record.expires_at
         } else {
@@ -208,7 +246,10 @@ impl Nameroot {
     pub fn transfer(env: Env, name: String, new_owner: Address) -> Result<(), Error> {
         let mut record = active_record(&env, &name)?;
         record.owner.require_auth();
-        record.owner = new_owner;
+        // A transferred name points at its new owner; leaving the old target
+        // would keep paying the previous owner until they noticed.
+        record.owner = new_owner.clone();
+        record.target = new_owner;
         save(&env, &name, &record);
         Updated {
             name,
@@ -268,13 +309,79 @@ impl Nameroot {
         if price_per_year < 0 {
             return Err(Error::InvalidPrice);
         }
+        let old = settings.price_per_year;
         settings.price_per_year = price_per_year;
         env.storage().instance().set(&DataKey::Settings, &settings);
+        PriceChanged {
+            old,
+            new: price_per_year,
+        }
+        .publish(&env);
         Ok(())
     }
 
     pub fn settings(env: Env) -> Result<Settings, Error> {
         settings(&env)
+    }
+
+    /// Hand the registry to a new admin. Both sign, so a typo can't lock it.
+    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let mut s = settings(&env)?;
+        s.admin.require_auth();
+        new_admin.require_auth();
+        let from = s.admin.clone();
+        s.admin = new_admin.clone();
+        env.storage().instance().set(&DataKey::Settings, &s);
+        AdminChanged {
+            from,
+            to: new_admin,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Send future registration fees somewhere else. Admin only.
+    pub fn set_treasury(env: Env, treasury: Address) -> Result<(), Error> {
+        let mut s = settings(&env)?;
+        s.admin.require_auth();
+        s.treasury = treasury.clone();
+        env.storage().instance().set(&DataKey::Settings, &s);
+        TreasuryChanged { treasury }.publish(&env);
+        Ok(())
+    }
+
+    /// Multipliers for 3- and 4-character names (1 = normal price). Admin only.
+    pub fn set_length_pricing(env: Env, three: u32, four: u32) -> Result<(), Error> {
+        let s = settings(&env)?;
+        s.admin.require_auth();
+        if three == 0 || four == 0 {
+            return Err(Error::InvalidPrice);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::LengthPricing, &LengthPricing { three, four });
+        Ok(())
+    }
+
+    pub fn length_pricing(env: Env) -> LengthPricing {
+        length_pricing(&env)
+    }
+
+    /// What registering or renewing `name` for `years` costs, in the fee token.
+    pub fn price_for(env: Env, name: String, years: u32) -> Result<i128, Error> {
+        validate_name(&name)?;
+        check_years(years)?;
+        fee(&env, &name, years)
+    }
+
+    /// Remove the caller's reverse record.
+    pub fn clear_primary(env: Env, address: Address) -> Result<(), Error> {
+        address.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Primary(address.clone()));
+        PrimaryCleared { address }.publish(&env);
+        Ok(())
     }
 }
 
@@ -307,9 +414,30 @@ fn check_years(years: u32) -> Result<(), Error> {
     }
 }
 
-fn charge(env: &Env, payer: &Address, years: u32) -> Result<(), Error> {
+fn length_pricing(env: &Env) -> LengthPricing {
+    env.storage()
+        .instance()
+        .get(&DataKey::LengthPricing)
+        .unwrap_or(LengthPricing { three: 1, four: 1 })
+}
+
+fn fee(env: &Env, name: &String, years: u32) -> Result<i128, Error> {
     let s = settings(env)?;
-    let fee = s.price_per_year * years as i128;
+    let lp = length_pricing(env);
+    let multiplier = match name.len() {
+        3 => lp.three,
+        4 => lp.four,
+        _ => 1,
+    } as i128;
+    s.price_per_year
+        .checked_mul(years as i128)
+        .and_then(|v| v.checked_mul(multiplier))
+        .ok_or(Error::InvalidPrice)
+}
+
+fn charge(env: &Env, payer: &Address, name: &String, years: u32) -> Result<(), Error> {
+    let s = settings(env)?;
+    let fee = fee(env, name, years)?;
     if fee > 0 {
         token::Client::new(env, &s.fee_token).transfer(payer, &s.treasury, &fee);
     }

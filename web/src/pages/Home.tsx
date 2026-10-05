@@ -5,6 +5,7 @@ import { fromUnits } from "../lib/format";
 import { Link, useTitle } from "../lib/router";
 
 export function Home() {
+  const [failed, setFailed] = useState(false);
   useTitle("nameroot · human-readable names for Stellar");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [q, setQ] = useState("alice");
@@ -17,7 +18,7 @@ export function Home() {
     setHit({ name, to, problem: null });
   };
   useEffect(() => {
-    names.read<Settings>("settings").then(setSettings).catch(() => {});
+    names.read<Settings>("settings").then(setSettings).catch(() => setFailed(true));
     resolve("alice");
   }, []);
   const STATS: [string, string][] = [
@@ -44,6 +45,14 @@ export function Home() {
               </div>
             ))}
           </dl>
+          {failed && (
+            <p className="mt-6 text-sm opacity-80" role="status">
+              Couldn’t reach Stellar testnet, so live numbers aren’t shown.{" "}
+              <button className="font-semibold underline" onClick={() => window.location.reload()}>
+                Retry
+              </button>
+            </p>
+          )}
         </div>
         <div className="glass p-7">
           <p className="text-xs font-bold uppercase tracking-wider text-soft">Try the resolver</p>

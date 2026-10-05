@@ -1,4 +1,5 @@
-import { client } from "./lib/stellar";
+import { nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
+import { client, server, str } from "./lib/stellar";
 
 export const CONTRACT_ID = import.meta.env.VITE_CONTRACT_ID ?? "CDF3GDRQZDLDJR5HSTGADOOTJI3FNQNMSWBJLQDH5JQ5OC2K5JUE3SWG";
 export const ERRORS: Record<number, string> = {
@@ -44,4 +45,41 @@ export function phaseOf(r: NameRecord | null, now = Date.now() / 1000): Phase {
   if (now < exp) return "active";
   if (now < exp + GRACE) return "grace";
   return "available";
+}
+
+/**
+ * Names currently owned by `owner`, discovered from registration and transfer
+ * events. Public RPC nodes keep about a week of events, so older names that
+ * haven't changed since won't show up here (search finds them as usual).
+ */
+export async function ownedNames(owner: string): Promise<{ name: string; record: NameRecord }[]> {
+  const sym = (s: string) => nativeToScVal(s, { type: "symbol" }).toXDR("base64");
+  const filters = [
+    { type: "contract" as const, contractIds: [CONTRACT_ID], topics: [[sym("name"), sym("registered"), "*"], [sym("name"), sym("updated"), "*"]] },
+  ];
+  const candidates = new Set<string>();
+  const latest = (await server.getLatestLedger()).sequence;
+  let res = await server.getEvents({ startLedger: Math.max(1, latest - 17_280 * 7 + 100), filters, limit: 200 });
+  // Each request scans a slice of ledgers; follow the cursor across the window.
+  for (let page = 0; page < 20; page++) {
+    for (const e of res.events) {
+      const value = scValToNative(e.value) as { owner?: string };
+      if (value.owner === owner) candidates.add(String(scValToNative(e.topic[2])));
+    }
+    const next = await server.getEvents({ cursor: res.cursor, filters, limit: 200 });
+    if (next.cursor === res.cursor) break;
+    res = next;
+  }
+  const records = await Promise.all(
+    [...candidates].map(async (name) => {
+      try {
+        return { name, record: await names.read<NameRecord>("get_record", [str(name)]) };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return records
+    .filter((r): r is { name: string; record: NameRecord } => !!r && r.record.owner === owner && phaseOf(r.record) !== "available")
+    .sort((a, b) => Number(a.record.expires_at - b.record.expires_at));
 }

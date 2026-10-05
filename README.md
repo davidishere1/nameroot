@@ -36,34 +36,39 @@ acme-shop  →  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
 
 | Function | Who signs | Notes |
 | --- | --- | --- |
-| `init(admin, fee_token, price_per_year, treasury)` | — | Once only |
-| `register(owner, name, target, years)` | owner | Pays `price × years` |
+| constructor `(admin, fee_token, price_per_year, treasury)` | — | Runs at deployment, so the registry is never left unconfigured |
+| `register(owner, name, target, years)` | owner | Pays `price_for(name, years)` |
 | `renew(payer, name, years)` | payer | Works until the end of the grace period |
 | `set_target(name, target)` | owner | Active names only |
-| `transfer(name, new_owner)` | owner | Active names only |
+| `transfer(name, new_owner)` | owner | Active names only; the name then points at `new_owner` |
 | `set_primary(address, name)` | address | The name must resolve to `address` |
+| `clear_primary(address)` | address | Removes the reverse record |
 | `resolve(name)` | anyone | Fails if expired |
 | `primary_name(address)` | anyone | `None` unless still valid |
-| `is_available(name)`, `get_record(name)`, `settings()` | anyone | Read state |
-| `set_price(price_per_year)` | admin | |
+| `is_available(name)`, `get_record(name)`, `settings()`, `price_for(name, years)`, `length_pricing()` | anyone | Read state |
+| `set_price(price_per_year)` | admin | Emits `PriceChanged` |
+| `set_length_pricing(three, four)` | admin | Price multipliers for 3- and 4-character names |
+| `set_treasury(treasury)` | admin | Where fees go |
+| `set_admin(new_admin)` | admin **and** new admin | Both sign, so a typo can't lock the registry |
 
 Errors: `AlreadyInitialized (1)`, `NotInitialized (2)`, `InvalidName (3)`,
 `NameTaken (4)`, `NameNotFound (5)`, `NameExpired (6)`, `InvalidYears (7)`,
 `NotOwner (8)`, `InvalidPrice (9)`, `PrimaryMismatch (10)`.
 
 Events: `("name","registered", name)`, `("name","renewed", name)`,
-`("name","updated", name)`.
+`("name","updated", name)`, `("name","price")`, `("name","admin")`,
+`("name","treasury")`, `("name","unprimary")`.
 
 ## Build, test and deploy
 
 ```bash
 cd contracts
-cargo test        # 14 unit tests
+cargo test        # 18 unit tests
 stellar contract build
+# settings are constructor arguments: deploy and configure in one step
 stellar contract deploy --wasm target/wasm32v1-none/release/nameroot.wasm \
-  --source me --network testnet
-stellar contract invoke --id <NAMEROOT> --source me --network testnet -- \
-  init --admin me --fee_token <XLM_SAC_ID> --price_per_year 50000000 --treasury me
+  --source me --network testnet -- \
+  --admin me --fee_token <XLM_SAC_ID> --price_per_year 50000000 --treasury me
 
 stellar contract invoke --id <NAMEROOT> --source alice --network testnet -- \
   register --owner alice --name alice --target alice --years 1
@@ -73,6 +78,10 @@ stellar contract invoke --id <NAMEROOT> --network testnet -- resolve --name alic
 ## Web app
 
 ![Nameroot web app](docs/assets/web-app.png)
+
+The site has three pages: **Home** (what it does, with live testnet data), **App** (the tool itself) and **Docs** (getting started, concepts, reference and FAQ).
+
+![nameroot app page](docs/assets/web-app-page.png)
 
 A registrar-style app at `web/`:
 
