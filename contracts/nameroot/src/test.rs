@@ -23,17 +23,27 @@ fn setup<'a>() -> Setup<'a> {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|l| l.timestamp = NOW);
-    let names = NamerootClient::new(&env, &env.register(Nameroot, ()));
     let token = env
         .register_stellar_asset_contract_v2(Address::generate(&env))
         .address();
     let treasury = Address::generate(&env);
+    let names = NamerootClient::new(
+        &env,
+        &env.register(
+            Nameroot,
+            (
+                Address::generate(&env),
+                token.clone(),
+                PRICE,
+                treasury.clone(),
+            ),
+        ),
+    );
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     let mint = StellarAssetClient::new(&env, &token);
     mint.mint(&alice, &(PRICE * 100));
     mint.mint(&bob, &(PRICE * 100));
-    names.init(&Address::generate(&env), &token, &PRICE, &treasury);
     let token_client = token::Client::new(&env, &token);
     Setup {
         env,
@@ -192,7 +202,9 @@ fn owner_can_retarget_and_transfer() {
     s.names.transfer(&n(&s, "alice"), &s.bob);
     let record = s.names.get_record(&n(&s, "alice"));
     assert_eq!(record.owner, s.bob);
-    assert_eq!(record.target, hot_wallet);
+    // The name now pays its new owner, not the previous owner's hot wallet.
+    assert_eq!(record.target, s.bob);
+    assert_eq!(s.names.resolve(&n(&s, "alice")), s.bob);
 }
 
 #[test]
@@ -237,10 +249,55 @@ fn admin_can_change_the_price_and_free_registration_works() {
 }
 
 #[test]
-fn init_only_once() {
+#[should_panic]
+fn constructor_rejects_a_negative_price() {
+    let env = Env::default();
+    let a = Address::generate(&env);
+    env.register(Nameroot, (a.clone(), a.clone(), -1i128, a));
+}
+
+#[test]
+fn admin_and_treasury_can_be_handed_over() {
     let s = setup();
+    let new_admin = Address::generate(&s.env);
+    let new_treasury = Address::generate(&s.env);
+    s.names.set_admin(&new_admin);
+    s.names.set_treasury(&new_treasury);
+    let settings = s.names.settings();
+    assert_eq!(settings.admin, new_admin);
+    assert_eq!(settings.treasury, new_treasury);
+    s.names.register(&s.alice, &n(&s, "alice"), &s.alice, &1);
+    assert_eq!(s.token_client.balance(&new_treasury), PRICE);
+}
+
+#[test]
+fn price_changes_emit_an_event() {
+    use soroban_sdk::testutils::Events as _;
+    let s = setup();
+    s.names.set_price(&(PRICE * 2));
+    assert_eq!(s.env.events().all().events().len(), 1);
+}
+
+#[test]
+fn short_names_can_cost_more() {
+    let s = setup();
+    s.names.set_length_pricing(&10, &3);
+    assert_eq!(s.names.price_for(&n(&s, "abc"), &2), PRICE * 20);
+    assert_eq!(s.names.price_for(&n(&s, "abcd"), &1), PRICE * 3);
+    assert_eq!(s.names.price_for(&n(&s, "abcde"), &1), PRICE);
+    s.names.register(&s.alice, &n(&s, "abc"), &s.alice, &1);
+    assert_eq!(s.token_client.balance(&s.treasury), PRICE * 10);
     assert_eq!(
-        s.names.try_init(&s.alice, &s.alice, &PRICE, &s.treasury),
-        Err(Ok(Error::AlreadyInitialized))
+        s.names.try_set_length_pricing(&0, &1),
+        Err(Ok(Error::InvalidPrice))
     );
+}
+
+#[test]
+fn primary_name_can_be_cleared() {
+    let s = setup();
+    s.names.register(&s.alice, &n(&s, "alice"), &s.alice, &1);
+    s.names.set_primary(&s.alice, &n(&s, "alice"));
+    s.names.clear_primary(&s.alice);
+    assert_eq!(s.names.primary_name(&s.alice), None);
 }
