@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
-import { nameProblem, names, phaseOf, type NameRecord, type Phase, type Settings } from "./names";
+import { nameProblem, names, ownedNames, phaseOf, type NameRecord, type Phase, type Settings } from "./names";
 import { accountLink, addr, str, txLink, u32 } from "./lib/stellar";
 import { dateOf, fromUnits, short, timeLeft } from "./lib/format";
 import { useWallet } from "./lib/useWallet";
@@ -22,6 +22,17 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
     if (wallet.address) names.read<string | null>("primary_name", [addr(wallet.address)]).then((n) => setMyName(n ?? null));
   }, [wallet.address]);
 
+  const [owned, setOwned] = useState<{ name: string; record: NameRecord }[] | null>(null);
+  const loadOwned = () => {
+    if (!wallet.address) return setOwned(null);
+    ownedNames(wallet.address).then(setOwned).catch(() => setOwned([]));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadOwned, [wallet.address]);
+  const renewing = useAction();
+  const now = Date.now() / 1000;
+  const expiring = (owned ?? []).filter((o) => phaseOf(o.record) === "grace" || Number(o.record.expires_at) - now < 30 * 86_400);
+
   const lookup = (raw: string) =>
     search.run("lookup", async () => {
       const name = raw.trim().toLowerCase().replace(/\.xlm$/, "");
@@ -39,11 +50,43 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
   return (
     <div className="min-h-screen bg-[radial-gradient(900px_500px_at_15%_-10%,#d9ccff_0%,transparent_60%),radial-gradient(700px_500px_at_100%_0%,#c3e9ff_0%,transparent_55%)]">
 
-      <main className="mx-auto max-w-5xl px-5 pb-16">
+      <div className="mx-auto max-w-5xl px-5 pb-16">
         {myName && (
           <p className="pt-6 text-center text-sm text-soft">
             Connected as <b className="text-violet-deep">{myName}.xlm</b>
           </p>
+        )}
+        {expiring.map(({ name, record }) => (
+          <div key={name} className="glass mx-auto mt-6 flex max-w-2xl flex-wrap items-center justify-between gap-3 border-wait/40 p-4" role="status">
+            <p className="text-sm">
+              <b>{name}.xlm</b>{" "}
+              {phaseOf(record) === "grace"
+                ? `expired ${timeLeft(record.expires_at)} and has stopped resolving. Renew before the grace period ends.`
+                : `expires ${timeLeft(record.expires_at)}.`}
+            </p>
+            <button
+              className="go go-v"
+              disabled={!!renewing.busy}
+              onClick={() =>
+                renewing.run(
+                  name,
+                  async () => {
+                    const r = await names.invoke(wallet.address!, "renew", [addr(wallet.address!), str(name), u32(1)]);
+                    loadOwned();
+                    return r;
+                  },
+                  (r) => ({ text: `${name}.xlm renewed for a year.`, hash: r.hash }),
+                )
+              }
+            >
+              {renewing.busy === name ? "Confirm in wallet…" : "Renew 1 year"}
+            </button>
+          </div>
+        ))}
+        {expiring.length > 0 && (
+          <div className="mx-auto mt-2 max-w-2xl">
+            <Result a={renewing} />
+          </div>
         )}
         <section className="pt-10 text-center md:pt-16">
           <h1 className="mx-auto max-w-3xl text-5xl font-extrabold leading-[1.05] tracking-tight md:text-6xl">
@@ -98,8 +141,33 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
           ))}
         </section>
 
+        {wallet.address && (
+          <section className="glass mt-12 p-6">
+            <h2 className="text-xl font-bold text-violet-deep">Your names</h2>
+            {owned === null ? (
+              <p className="mt-3 text-sm text-soft">Looking for names you own…</p>
+            ) : owned.length === 0 ? (
+              <p className="mt-3 text-sm text-soft">No recently registered or transferred names for this wallet. Search for a name to register one.</p>
+            ) : (
+              <ul className="mt-4 divide-y divide-lilac/40">
+                {owned.map(({ name, record }) => (
+                  <li key={name} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                    <button className="font-semibold text-violet-deep underline" onClick={() => (setQuery(name), lookup(name))}>
+                      {name}.xlm
+                    </button>
+                    <span className="text-sm text-soft">
+                      → <span className="font-mono">{short(record.target, 5)}</span> · {phaseOf(record) === "grace" ? "in grace period" : `expires ${dateOf(record.expires_at)}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-3 text-xs text-soft">Found from the registry's events; public RPC nodes keep about a week of them.</p>
+          </section>
+        )}
+
         <ReverseLookup />
-      </main>
+      </div>
 
     </div>
   );

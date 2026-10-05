@@ -1,6 +1,7 @@
 import { CONTRACT_ID } from "../names";
 import { contractLink } from "../lib/stellar";
-import { Link, useTitle } from "../lib/router";
+import { useEffect } from "react";
+import { Link, useSection, useTitle } from "../lib/router";
 
 const SECTIONS = [
   ["start", "Getting started"],
@@ -11,23 +12,19 @@ const SECTIONS = [
 
 export function Docs() {
   useTitle("Docs · nameroot");
+  const section = useSection();
+  useEffect(() => {
+    if (section) document.getElementById(section)?.scrollIntoView({ behavior: "smooth" });
+  }, [section]);
   return (
     <div className="mx-auto grid max-w-6xl gap-12 px-5 py-14 lg:grid-cols-[210px_1fr]">
       <aside className="hidden lg:block">
         <nav className="sticky top-24 space-y-1 text-sm">
           <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.2em] text-violet">On this page</p>
           {SECTIONS.map(([id, label]) => (
-            <a
-              key={id}
-              href="#/docs"
-              onClick={(e) => {
-                e.preventDefault();
-                document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-              }}
-              className="block rounded-lg px-3 py-2 text-violet-deep hover:bg-white"
-            >
+            <Link key={id} to={`/docs/${id}`} className="block rounded-lg px-3 py-2 text-violet-deep hover:bg-white">
               {label}
-            </a>
+            </Link>
           ))}
         </nav>
       </aside>
@@ -154,7 +151,7 @@ const REFERENCE: [string, string, string][] = [
   [
     "transfer(name, new_owner)",
     "owner",
-    "Hands the name to someone else"
+    "Hands the name to someone else; it then points at them"
   ],
   [
     "set_primary(address, name)",
@@ -167,9 +164,19 @@ const REFERENCE: [string, string, string][] = [
     "Forward and reverse lookups"
   ],
   [
-    "get_record · is_available · settings",
+    "get_record · is_available · settings · price_for",
     "—",
     "Read state"
+  ],
+  [
+    "clear_primary(address)",
+    "address",
+    "Removes your reverse record"
+  ],
+  [
+    "set_price · set_length_pricing · set_treasury · set_admin",
+    "admin",
+    "Registry settings (set_admin also needs the new admin's signature)"
   ]
 ];
 
@@ -192,7 +199,7 @@ const FAQ: [string, string][] = [
   ],
   [
     "Can I give a name away?",
-    "Yes. Transfer it to any address; the new owner controls it from then on."
+    "Yes. Transfer it to any address; the new owner controls it from then on, and the name starts pointing at them."
   ],
   [
     "Is it audited?",
