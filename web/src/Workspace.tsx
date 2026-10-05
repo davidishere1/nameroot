@@ -27,7 +27,6 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
     if (!wallet.address) return setOwned(null);
     ownedNames(wallet.address).then(setOwned).catch(() => setOwned([]));
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(loadOwned, [wallet.address]);
   const renewing = useAction();
   const now = Date.now() / 1000;
@@ -38,12 +37,7 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
       const name = raw.trim().toLowerCase().replace(/\.xlm$/, "");
       const problem = nameProblem(name);
       if (problem) throw new Error(problem);
-      let record: NameRecord | null = null;
-      try {
-        record = await names.read<NameRecord>("get_record", [str(name)]);
-      } catch {
-        record = null;
-      }
+      const record = await names.read<NameRecord>("get_record", [str(name)]).catch(() => null);
       setLooked({ name, record });
     });
 
@@ -214,6 +208,13 @@ function NameResult({
   const [newOwner, setNewOwner] = useState("");
   const act = useAction();
   const isOwner = !!record && wallet.address === record.owner;
+  // Subnames exist on registries from the subname build; probe once.
+  const [subsSupported, setSubsSupported] = useState(false);
+  const [subLabel, setSubLabel] = useState("");
+  const [subTarget, setSubTarget] = useState("");
+  useEffect(() => {
+    names.read("subname", [str(name), str("probe")]).then(() => setSubsSupported(true), () => setSubsSupported(false));
+  }, [name]);
   const cost = settings ? settings.price_per_year * BigInt(years) : 0n;
   const call = (label: string, method: string, args: Parameters<typeof names.invoke>[2], text: string) =>
     act.run(label, async () => {
@@ -322,6 +323,29 @@ function NameResult({
                   Transfer
                 </button>
               </div>
+            </div>
+          )}
+          {isOwner && phase === "active" && subsSupported && (
+            <div className="mt-5 rounded-2xl border border-lilac/50 p-4">
+              <p className="text-sm font-semibold text-violet-deep">Subnames</p>
+              <p className="mt-1 text-xs text-soft">
+                Point <code>label.{name}</code> at another address, e.g. <code>pay.{name}</code> for a payments wallet. Subnames stop
+                resolving if the name expires or changes hands.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input className="fld w-32" placeholder="label" value={subLabel} onChange={(e) => setSubLabel(e.target.value.toLowerCase())} />
+                <input className="fld min-w-0 flex-1 font-mono text-xs" placeholder="G… or C…" value={subTarget} onChange={(e) => setSubTarget(e.target.value.trim())} />
+                <button
+                  className="go go-v"
+                  disabled={
+                    !!act.busy || !!nameProblem(subLabel) || !(StrKey.isValidEd25519PublicKey(subTarget) || StrKey.isValidContract(subTarget))
+                  }
+                  onClick={() => call("subname", "set_subname", [str(name), str(subLabel), addr(subTarget)], `${subLabel}.${name} set.`)}
+                >
+                  Set
+                </button>
+              </div>
+              {subLabel && nameProblem(subLabel) && <p className="mt-2 text-xs text-bad">{nameProblem(subLabel)}</p>}
             </div>
           )}
         </>
