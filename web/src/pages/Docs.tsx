@@ -161,7 +161,12 @@ const REFERENCE: [string, string, string][] = [
   [
     "resolve(name) · primary_name(address)",
     "—",
-    "Forward and reverse lookups"
+    "Forward (including pay.alice subnames) and reverse lookups"
+  ],
+  [
+    "set_subname(name, label, target) · remove_subname(name, label)",
+    "owner",
+    "Manage label.name subnames; they die with the parent or on transfer"
   ],
   [
     "get_record · is_available · settings · price_for",
