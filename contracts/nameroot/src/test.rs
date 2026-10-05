@@ -301,3 +301,39 @@ fn primary_name_can_be_cleared() {
     s.names.clear_primary(&s.alice);
     assert_eq!(s.names.primary_name(&s.alice), None);
 }
+
+#[test]
+fn subnames_resolve_through_the_parent() {
+    let s = setup();
+    let hot = Address::generate(&s.env);
+    s.names.register(&s.alice, &n(&s, "alice"), &s.alice, &1);
+    s.names.set_subname(&n(&s, "alice"), &n(&s, "pay"), &hot);
+    assert_eq!(s.names.resolve(&n(&s, "pay.alice")), hot);
+    assert_eq!(s.names.subname(&n(&s, "alice"), &n(&s, "pay")), Some(hot));
+    assert_eq!(
+        s.names.try_resolve(&n(&s, "tips.alice")),
+        Err(Ok(Error::SubnameNotFound))
+    );
+    s.names.remove_subname(&n(&s, "alice"), &n(&s, "pay"));
+    assert_eq!(
+        s.names.try_resolve(&n(&s, "pay.alice")),
+        Err(Ok(Error::SubnameNotFound))
+    );
+}
+
+#[test]
+fn subnames_die_with_the_parent_and_on_transfer() {
+    let s = setup();
+    s.names.register(&s.alice, &n(&s, "alice"), &s.alice, &1);
+    s.names
+        .set_subname(&n(&s, "alice"), &n(&s, "pay"), &Address::generate(&s.env));
+
+    // Transferring the parent: the new owner doesn't inherit old subnames.
+    s.names.transfer(&n(&s, "alice"), &s.bob);
+    assert_eq!(s.names.subname(&n(&s, "alice"), &n(&s, "pay")), None);
+
+    // Expired parent: nothing resolves.
+    s.names.set_subname(&n(&s, "alice"), &n(&s, "tips"), &s.bob);
+    at(&s, NOW + YEAR);
+    assert_eq!(s.names.subname(&n(&s, "alice"), &n(&s, "tips")), None);
+}

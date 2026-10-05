@@ -43,7 +43,9 @@ acme-shop  →  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
 | `transfer(name, new_owner)` | owner | Active names only; the name then points at `new_owner` |
 | `set_primary(address, name)` | address | The name must resolve to `address` |
 | `clear_primary(address)` | address | Removes the reverse record |
-| `resolve(name)` | anyone | Fails if expired |
+| `resolve(name)` | anyone | Fails if expired; also resolves subnames like `pay.alice` |
+| `set_subname(name, label, target)` / `remove_subname(name, label)` | owner | `label.name` → target; stops resolving if the name expires or changes hands |
+| `subname(name, label)` | anyone | Target of a live subname, or `None` |
 | `primary_name(address)` | anyone | `None` unless still valid |
 | `is_available(name)`, `get_record(name)`, `settings()`, `price_for(name, years)`, `length_pricing()` | anyone | Read state |
 | `set_price(price_per_year)` | admin | Emits `PriceChanged` |
@@ -53,17 +55,17 @@ acme-shop  →  GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
 
 Errors: `AlreadyInitialized (1)`, `NotInitialized (2)`, `InvalidName (3)`,
 `NameTaken (4)`, `NameNotFound (5)`, `NameExpired (6)`, `InvalidYears (7)`,
-`NotOwner (8)`, `InvalidPrice (9)`, `PrimaryMismatch (10)`.
+`NotOwner (8)`, `InvalidPrice (9)`, `PrimaryMismatch (10)`, `SubnameNotFound (11)`.
 
 Events: `("name","registered", name)`, `("name","renewed", name)`,
 `("name","updated", name)`, `("name","price")`, `("name","admin")`,
-`("name","treasury")`, `("name","unprimary")`.
+`("name","treasury")`, `("name","unprimary")`, `("name","subname", name)`.
 
 ## Build, test and deploy
 
 ```bash
 cd contracts
-cargo test        # 18 unit tests
+cargo test        # 20 unit tests
 stellar contract build
 # settings are constructor arguments: deploy and configure in one step
 stellar contract deploy --wasm target/wasm32v1-none/release/nameroot.wasm \

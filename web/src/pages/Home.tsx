@@ -12,7 +12,8 @@ export function Home() {
   const [hit, setHit] = useState<{ name: string; to: string | null; problem: string | null } | null>(null);
   const resolve = async (raw: string) => {
     const name = raw.trim().toLowerCase().replace(/\.xlm$/, "");
-    const problem = nameProblem(name);
+    // "pay.alice" is a subname: validate each part.
+    const problem = name.split(".").length > 2 ? "Use name or label.name" : name.split(".").map(nameProblem).find(Boolean) ?? null;
     if (problem) return setHit({ name, to: null, problem });
     const to = await names.read<string>("resolve", [str(name)]).catch(() => null);
     setHit({ name, to, problem: null });

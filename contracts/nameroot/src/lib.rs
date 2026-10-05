@@ -60,6 +60,18 @@ pub enum DataKey {
     Name(String),
     Primary(Address),
     LengthPricing,
+    /// `label.parent` → who set it and where it points.
+    Sub(String, String),
+}
+
+/// A subname such as `pay.alice`. It only resolves while `owner` still owns
+/// the parent name, so a re-registered or transferred parent never inherits
+/// someone else's subnames.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubRecord {
+    pub owner: Address,
+    pub target: Address,
 }
 
 #[contracterror]
@@ -77,6 +89,7 @@ pub enum Error {
     NotOwner = 8,
     InvalidPrice = 9,
     PrimaryMismatch = 10,
+    SubnameNotFound = 11,
 }
 
 #[contractevent(topics = ["name", "registered"])]
@@ -112,6 +125,15 @@ pub struct TreasuryChanged {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrimaryCleared {
     pub address: Address,
+}
+
+#[contractevent(topics = ["name", "subname"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubnameSet {
+    #[topic]
+    pub name: String,
+    pub label: String,
+    pub target: Address,
 }
 
 #[contractevent(topics = ["name", "renewed"])]
@@ -261,7 +283,60 @@ impl Nameroot {
     }
 
     /// Address a name currently resolves to. Fails for expired names.
+    /// Point `label.name` at `target`. Owner of an active `name` only.
+    pub fn set_subname(
+        env: Env,
+        name: String,
+        label: String,
+        target: Address,
+    ) -> Result<(), Error> {
+        let record = active_record(&env, &name)?;
+        record.owner.require_auth();
+        validate_name(&label)?;
+        let key = DataKey::Sub(name.clone(), label.clone());
+        env.storage().persistent().set(
+            &key,
+            &SubRecord {
+                owner: record.owner,
+                target: target.clone(),
+            },
+        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_TO);
+        SubnameSet {
+            name,
+            label,
+            target,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Remove `label.name`. Owner of `name` only.
+    pub fn remove_subname(env: Env, name: String, label: String) -> Result<(), Error> {
+        let record = active_record(&env, &name)?;
+        record.owner.require_auth();
+        let key = DataKey::Sub(name, label);
+        if !env.storage().persistent().has(&key) {
+            return Err(Error::SubnameNotFound);
+        }
+        env.storage().persistent().remove(&key);
+        Ok(())
+    }
+
+    /// Target of `label.name`, if it exists and the parent's owner set it.
+    pub fn subname(env: Env, name: String, label: String) -> Option<Address> {
+        let parent = active_record(&env, &name).ok()?;
+        let sub: SubRecord = env.storage().persistent().get(&DataKey::Sub(name, label))?;
+        (sub.owner == parent.owner).then_some(sub.target)
+    }
+
+    /// Resolve `alice` or a subname like `pay.alice`.
     pub fn resolve(env: Env, name: String) -> Result<Address, Error> {
+        if let Some((label, parent)) = split_subname(&env, &name) {
+            return Self::subname(env, parent, label).ok_or(Error::SubnameNotFound);
+        }
         Ok(active_record(&env, &name)?.target)
     }
 
@@ -404,6 +479,22 @@ fn validate_name(name: &String) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// "pay.alice" → Some(("pay", "alice")); names without a dot → None.
+fn split_subname(env: &Env, name: &String) -> Option<(String, String)> {
+    let len = name.len() as usize;
+    if len > 2 * MAX_NAME_LEN as usize + 1 {
+        return None;
+    }
+    let mut buf = [0u8; 2 * MAX_NAME_LEN as usize + 1];
+    let bytes = &mut buf[..len];
+    name.copy_into_slice(bytes);
+    let dot = bytes.iter().position(|&b| b == b'.')?;
+    Some((
+        String::from_bytes(env, &bytes[..dot]),
+        String::from_bytes(env, &bytes[dot + 1..]),
+    ))
 }
 
 fn check_years(years: u32) -> Result<(), Error> {
